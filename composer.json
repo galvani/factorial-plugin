@@ -1,0 +1,17 @@
+{
+    "name": "factorial/mautic-plugin",
+    "description": "Factorial Plugin",
+    "type": "mautic-plugin",
+    "keywords": [
+        "mautic",
+        "plugin",
+        "integration"
+    ],
+    "extra": {
+        "install-directory-name": "MauticFactorialBundle"
+    },
+    "minimum-stability": "dev",
+    "require": {
+        "mautic/core-lib": "^5.0"
+    }
+}
