@@ -2,6 +2,7 @@
 
 namespace MauticPlugin\MauticFactorialBundle;
 
+use Doctrine\DBAL\Schema\Schema;
 use Doctrine\ORM\EntityManager;
 use Mautic\CoreBundle\Factory\MauticFactory;
 use Mautic\PluginBundle\Bundle\PluginBundleBase;
@@ -49,5 +50,15 @@ class MauticFactorialBundle extends PluginBundleBase
         }
 
         return $classes ?: null;
+    }
+
+    public static function onPluginUpdate(
+        Plugin $plugin,
+        MauticFactory $factory,
+        $metadata = null,
+        Schema $installedSchema = null
+    ): void {
+        // Not recommended although availalbe for simple schema changes - see updatePluginSchema docblock
+        self::updatePluginSchema($metadata, $installedSchema, $factory);
     }
 }

@@ -3,47 +3,68 @@
 namespace MauticPlugin\MauticFactorialBundle\Controller;
 
 use Mautic\CoreBundle\Controller\CommonController;
-use Mautic\PluginBundle\Helper\IntegrationHelper;
-use MauticPlugin\MauticCrmBundle\Integration\HubspotIntegration;
-use Psr\Log\LoggerInterface;
+use Mautic\LeadBundle\Entity\Lead;
+use Mautic\LeadBundle\Helper\ContactRequestHelper;
+use Mautic\PageBundle\Model\PageModel;
+use MauticPlugin\MauticFactorialBundle\Events\PageTrackingEvent;
+use MauticPlugin\MauticFactorialBundle\FactorialEvents;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class PublicController extends CommonController
 {
-    public function contactDataAction(Request $request, LoggerInterface $mauticLogger, IntegrationHelper $integrationHelper): Response
+    public function pageTrackingAction(
+        Request              $request,
+        ContactRequestHelper $contactRequestHelper,
+        EventDispatcherInterface      $eventDispatcher,
+    ): Response
     {
-        $content = $request->getContent();
-        if (!empty($content)) {
-            $data = json_decode($content, true); // 2nd param to get as array
-        } else {
-            return new Response('ERROR');
+        $notSuccessResponse = new JsonResponse(
+            [
+                'success' => 0,
+            ]
+        );
+
+        $contact = $this->identifyContact($contactRequestHelper, $request);
+
+        if ($contact === null) {
+            return $notSuccessResponse;
         }
 
-        $integration = 'Hubspot';
+        $event = new PageTrackingEvent(
+            $request,
+            $contact
+        );
 
-        $integrationObject = $integrationHelper->getIntegrationObject($integration);
-        \assert($integrationObject instanceof HubspotIntegration);
+        $eventDispatcher->dispatch($event, FactorialEvents::ON_CONTACT_TRACKING);
 
-        foreach ($data as $info) {
-            $object = explode('.', $info['subscriptionType']);
-            $id     = $info['objectId'];
+        return new JsonResponse(
+            [
+                'success' => 1,
+                'id'      => $contact !== null ? $contact->getId() : null,
+                'event'   => $event->getData(),
+            ]
+        );
+    }
 
-            try {
-                switch ($object[0]) {
-                    case 'contact':
-                        $executed = [];
-                        $integrationObject->getLeads($id, null, $executed);
-                        break;
-                    case 'company':
-                        $integrationObject->getCompanies($id);
-                        break;
-                }
-            } catch (\Exception $ex) {
-                $mauticLogger->log('error', 'ERROR on Hubspot webhook: '.$ex->getMessage());
-            }
+    private function identifyContact(ContactRequestHelper $requestHelper, $request, $page = null): ?Lead
+    {
+        // Don't skew results with user hits
+        if (!$this->security->isAnonymous()) {
+            return null;
         }
 
-        return new Response('OK');
+        /** @var PageModel $model */
+        $model   = $this->getModel('page');
+        $query   = $model->getHitQuery($request, $page);
+        $contact = $requestHelper->getContactFromQuery($query);
+
+        if (!$contact || !$contact->getId()) {
+            return null;
+        }
+
+        return $contact;
     }
 }

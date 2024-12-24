@@ -7,19 +7,9 @@ return [
     'author'      => 'Factorial',
     'routes'      => [
         'public' => [
-            'mautic_integration_contacts' => [
-                'path'         => '/plugin/{integration}/contact_data',
-                'controller'   => 'MauticPlugin\MauticFactorialBundle\Controller\PublicController::contactDataAction',
-                'requirements' => [
-                    'integration' => '.+',
-                ],
-            ],
-            'mautic_integration_companies' => [
-                'path'         => '/plugin/{integration}/company_data',
-                'controller'   => 'MauticPlugin\MauticFactorialBundle\Controller\PublicController::companyDataAction',
-                'requirements' => [
-                    'integration' => '.+',
-                ],
+            'factorial_page_tracking_cors' => [
+                'path'       => '/mtc/page',
+                'controller' => 'MauticPlugin\MauticFactorialBundle\Controller\PublicController::pageTrackingAction',
             ],
         ],
     ],
