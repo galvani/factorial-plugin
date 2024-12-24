@@ -6,7 +6,6 @@ use Mautic\LeadBundle\Event\LeadListFiltersChoicesEvent;
 use Mautic\LeadBundle\Event\SegmentDictionaryGenerationEvent;
 use Mautic\LeadBundle\LeadEvents;
 use Mautic\LeadBundle\Provider\TypeOperatorProviderInterface;
-use Mautic\LeadBundle\Segment\Query\Filter\ForeignValueFilterQueryBuilder;
 use MauticPlugin\MauticFactorialBundle\Services\DwellTimeFilterQueryBuilder;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
