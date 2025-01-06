@@ -2,6 +2,7 @@
 
 namespace MauticPlugin\MauticFactorialBundle\Services;
 
+use Doctrine\DBAL\Query\Expression\CompositeExpression;
 use Mautic\LeadBundle\Segment\ContactSegmentFilter;
 use Mautic\LeadBundle\Segment\Query\Filter\BaseFilterQueryBuilder;
 use Mautic\LeadBundle\Segment\Query\LeadBatchLimiterTrait;
@@ -23,7 +24,6 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
         $batchLimiters    = $filter->getBatchLimiters();
         $filterParameters = $filter->getParameterValue();
 
-        // allow use of `contact_id` column instead of deprecated `lead_id`
         $foreignContactColumn = $filter->getForeignContactColumn();
 
         if (is_array($filterParameters)) {
@@ -37,7 +37,11 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
         $filterParametersHolder = $filter->getParameterHolder($parameters);
 
-        $tableAlias = $this->generateRandomParameterName();
+        if ( $filter->getGlue() === 'and') {
+            $tableAlias = $this->getTableAliasFromQueryBuilderWhereAndHaving($queryBuilder, $filter->getTable());
+        }
+        $tableAlias ??= $this->generateRandomParameterName();
+
 
         $subQueryBuilder = $queryBuilder->createQueryBuilder();
 
@@ -65,10 +69,6 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
                     ->select('NULL')->from($filter->getTable(), $tableAlias)
                     ->andWhere($tableAlias.'.'.$foreignContactColumn.' = '.$leadsTableAlias.'.id');
 
-                // The use of NOT EXISTS here requires the use of IN instead of NOT IN to prevent a "double negative."
-                // We are not using EXISTS...NOT IN because it results in including everyone who has at least one entry that doesn't
-                // match the criteria. For example, with tags, if the contact has the tag in the filter but also another tag, they'll
-                // be included in the results which is not what we want.
                 $expression = $subQueryBuilder->expr()->in(
                     $tableAlias.'.'.$filter->getField(),
                     $filterParametersHolder
@@ -108,7 +108,7 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
             case 'regexp':
             case 'notRegexp':
                 $subQueryBuilder->select($tableAlias.'.'.$foreignContactColumn)
-                    ->from($filter->getTable(), $tableAlias);
+                                ->from($filter->getTable(), $tableAlias);
 
                 $this->addLeadAndMinMaxLimiters($subQueryBuilder, $batchLimiters, str_replace(MAUTIC_TABLE_PREFIX, '', $filter->getTable()), $foreignContactColumn);
 
@@ -117,23 +117,46 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
                 $subQueryBuilder->andWhere($expression);
 
-                $queryBuilder->addLogic(
-                    $queryBuilder->expr()->in($leadsTableAlias.'.id', $subQueryBuilder->getSQL()),
-                    $filter->getGlue()
-                );
+                $queryBuilder->addLogic($queryBuilder->expr()->in($leadsTableAlias.'.id', $subQueryBuilder->getSQL()), $filter->getGlue());
+
                 break;
             default:
-                $subQueryBuilder->select($tableAlias.'.'.$foreignContactColumn)
-                    ->from($filter->getTable(), $tableAlias);
+                $subQueryBuilder->select($tableAlias.'.'.$foreignContactColumn)->from($filter->getTable(), $tableAlias);
 
-                $this->addLeadAndMinMaxLimiters($subQueryBuilder, $batchLimiters, str_replace(MAUTIC_TABLE_PREFIX, '', $filter->getTable()), $foreignContactColumn);
+                $this->addLeadAndMinMaxLimiters($subQueryBuilder, $batchLimiters, str_replace(MAUTIC_TABLE_PREFIX ?? '', '', $filter->getTable()), $foreignContactColumn);
 
                 $expression = $subQueryBuilder->expr()->$filterOperator(
                     $tableAlias.'.'.$filter->getField(),
                     $filterParametersHolder
                 );
-                $subQueryBuilder->andWhere($expression);
 
+                $existingTableExpression = $this->ejectCurrentConditionFromQueryBuilderByTableName($queryBuilder, $tableAlias);
+
+                $subQueryBuilder         = $queryBuilder->createQueryBuilder();
+                $subQueryBuilder
+                    ->select('lead_id')
+                    ->from($filter->getTable(), $tableAlias)
+                    ;
+
+                if ($existingTableExpression!==null) {
+                    if (count($existingTableExpression[0] ?? [])) {
+                        $condition = reset($existingTableExpression[0]); // Moves the internal pointer to the first element and returns its value
+                        match (strtoupper($filter->getGlue())) {
+                            CompositeExpression::TYPE_AND => $subQueryBuilder->andWhere($condition),
+                            CompositeExpression::TYPE_OR => $subQueryBuilder->orWhere($condition),
+                        };
+                    }
+
+                    if (count($existingTableExpression[1] ?? [])) {
+                        $condition = reset($existingTableExpression[1]); // Moves the internal pointer to the first element and returns its value
+                        match (strtoupper($filter->getGlue())) {
+                            CompositeExpression::TYPE_AND => $subQueryBuilder->andHaving($condition),
+                            CompositeExpression::TYPE_OR => $subQueryBuilder->orHaving($condition),
+                        };
+                    }
+                }
+
+                $subQueryBuilder->andWhere($expression);
                 $queryBuilder->addLogic($queryBuilder->expr()->in($leadsTableAlias.'.id', $subQueryBuilder->getSQL()), $filter->getGlue());
         }
 
@@ -141,4 +164,154 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
         return $queryBuilder;
     }
+
+    protected function removeConditionFromComposite(CompositeExpression $compositeExpression, $condition): ?CompositeExpression
+    {
+        $parts = $this->getCompositeParts($compositeExpression);
+
+        foreach ($parts as $key => $part) {
+            if ($part === $condition) {
+                unset($parts[$key]);
+            }
+        }
+
+        // Create a new composite expression with the remaining parts
+        return count($parts) ? new CompositeExpression($compositeExpression->getType(), $parts) : null;
+    }
+
+    private function removeWhereConditionFromQueryBuilder(QueryBuilder $queryBuilder, string $queryWhere)
+    {
+        $wheres = $queryBuilder->getQueryPart('where');
+        if ($wheres === null) { // It's empty already
+            return;
+        }
+        $glue = $wheres->getType();
+
+        $wheres = $this->removeConditionFromComposite($wheres, $queryWhere);
+        $queryBuilder->resetQueryPart('where');
+
+        if ($glue === 'AND') {
+            $queryBuilder->andWhere($wheres);
+        } else {
+            $queryBuilder->orWhere($wheres);
+        }
+    }
+
+    protected function ejectCurrentConditionFromQueryBuilderByTableName($queryBuilder, $table): ?array
+    {
+        $wherePart = $queryBuilder->getQueryPart('where');
+        if ($wherePart === null) {
+            return null;
+        }
+
+        $conditions = $this->getCompositeParts($wherePart);
+        if ($conditions === null) {
+            return null;
+        }
+
+        $givenTableWhere     = [];
+        $givenTableHaving    = [];
+        $preservedConditions = [];
+
+        foreach ($conditions as $condition) {
+            $parsedCondition = $this->parseCondition($condition);
+
+            if ($parsedCondition === null || $table !== $parsedCondition['table']) {
+                $preservedConditions[] = $condition;
+            } else {
+                $givenTableWhere[$parsedCondition['alias']] = $parsedCondition['condition'];
+                if ($parsedCondition['having'] !== null) {
+                    $givenTableHaving[$parsedCondition['alias']] = $parsedCondition['having'];
+                }
+            }
+        }
+
+        $queryBuilder->resetQueryPart('where');
+        foreach ($preservedConditions as $condition) {
+            match ($wherePart->getType()) {
+                CompositeExpression::TYPE_AND => $queryBuilder->andWhere($condition),
+                CompositeExpression::TYPE_OR => $queryBuilder->orWhere($condition),
+            };
+        }
+
+        return [$givenTableWhere, $givenTableHaving];
+    }
+
+    protected function parseCondition($condition): ?array
+    {
+        // Try to match the specific pattern first - now properly handling parentheses
+        if (preg_match('/SELECT\s+(\w+)\.lead_id\s+FROM\s+(\w+)\s+(\w+)\s+WHERE\s+(.*?)(?=\)|\s+GROUP BY|\s+HAVING|$)/i', $condition, $matches)) {
+            return [
+                'alias' => $matches[1],        // Extracted alias
+                'table' => $matches[2],        // Extracted table name
+                'condition' => trim($matches[4]), // Extracted condition (now using group 4 since we removed WHERE capture)
+                'having' => null               // No HAVING clause in this pattern
+            ];
+        }
+
+        // If specific pattern doesn't match, try the generic SQL parser
+        if (preg_match('/FROM\s+(\w+)(?:\s+(\w+))?/i', $condition, $tableMatch)) {
+            $tableName = $tableMatch[1];
+            $tableAlias = $tableMatch[2] ?? null;
+
+            // Extract WHERE clause - now not capturing WHERE keyword
+            $whereClause = null;
+            if (preg_match('/WHERE\s+(.*?)(?=\s+GROUP BY|\s+HAVING|\)$)/is', $condition, $whereMatch)) {
+                $whereClause = trim($whereMatch[1]);
+            }
+
+            // Extract HAVING clause
+            $havingClause = null;
+            if (preg_match('/HAVING\s+(.*?)(?=\)$)/is', $condition, $havingMatch)) {
+                $havingClause = trim($havingMatch[1]);
+            }
+
+            return [
+                'alias' => $tableAlias,
+                'table' => $tableName,
+                'condition' => $whereClause,
+                'having' => $havingClause
+            ];
+        }
+
+        return null;
+    }
+
+    protected function getCompositeParts(CompositeExpression $compositeExpression)
+    {
+        // Access the internal parts using reflection
+        $reflection    = new \ReflectionClass($compositeExpression);
+        $partsProperty = $reflection->getProperty('parts');
+        $partsProperty->setAccessible(true);
+
+        // Get the parts (conditions) of the composite expression
+        return $partsProperty->getValue($compositeExpression);
+    }
+
+    protected function getTableAliasFromQueryBuilderWhereAndHaving(QueryBuilder $queryBuilder, string $table): ?string
+    {
+        $wherePart = $queryBuilder->getQueryPart('where');
+        $havingPart = $queryBuilder->getQueryPart('having');
+        if ($wherePart === null && $havingPart === null) {
+            return null;
+        }
+
+        $conditions = $this->getCompositeParts($wherePart);
+        if ($conditions === null) {
+            return null;
+        }
+
+        foreach ($conditions as $condition) {
+            if (preg_match('/SELECT lead_id\s+FROM\s+(\w+)\s+(\w+)\s+WHERE\s+(.+)/i', $condition, $matches)) {
+                $alias = $matches[2]; // Extracted alias
+                $tableMatch = $matches[1]; // Extracted table name
+                if ($tableMatch === $table) {
+                    return $alias;
+                }
+            }
+        }
+
+        return null;
+    }
+
 }

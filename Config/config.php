@@ -3,7 +3,7 @@
 return [
     'name'        => 'Factorial',
     'description' => 'Enables custom Factorial functionalities',
-    'version'     => '1.0',
+    'version'     => json_decode(file_get_contents(__DIR__.'/../composer.json'),true)['version'],
     'author'      => 'Factorial',
     'routes'      => [
         'public' => [

@@ -41,7 +41,7 @@ class Version_1_0_0 extends AbstractMigration
                 row_format = DYNAMIC;
             
             create index IDX_87724BA555458D
-                on page_activity_tracking (lead_id);
+                on {$tableName} (lead_id);
             "
         );
     }

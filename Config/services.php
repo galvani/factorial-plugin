@@ -24,6 +24,7 @@ return function (ContainerConfigurator $configurator): void {
         ->tag('twig.extension');
 
     $services->alias('mautic.factorial.repository.page_activity', MauticPlugin\MauticFactorialBundle\Entity\PageActivityTrackingRepository::class);
-    $services->alias('factorial.lead.query.builder.page_activity.dwell_time', MauticPlugin\MauticFactorialBundle\Services\DwellTimeFilterQueryBuilder::class);
+    $services->alias(MauticPlugin\MauticFactorialBundle\Services\DwellTimeFilterQueryBuilder::getServiceId(), MauticPlugin\MauticFactorialBundle\Services\DwellTimeFilterQueryBuilder::class);
+    $services->alias(MauticPlugin\MauticFactorialBundle\Services\DwellTimeOverallFilterQueryBuilder::getServiceId(), MauticPlugin\MauticFactorialBundle\Services\DwellTimeOverallFilterQueryBuilder::class);
 };
 

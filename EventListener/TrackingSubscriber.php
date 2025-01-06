@@ -42,7 +42,7 @@ class TrackingSubscriber implements EventSubscriberInterface
         $content       = file_get_contents(__DIR__.'/../Resources/js/tracking.js');
         $mauticBaseUrl = $this->router->generate('mautic_base_index', [], UrlGeneratorInterface::ABSOLUTE_URL);
 
-        $event->appendJs(str_replace('{$mauticBaseUrl}', $mauticBaseUrl, $content));
+        $event->appendJs(str_replace(['{$mauticBaseUrl}','{$debug}'], [$mauticBaseUrl, MAUTIC_ENV === 'dev' ? 'true' : false], $content));
     }
 
     public function onContactTracked(PageTrackingEvent $event)
@@ -54,6 +54,12 @@ class TrackingSubscriber implements EventSubscriberInterface
             $properties = $event->getRequest()->request->all();
             $updated    = new \DateTime();
 
+            //  check if not set or empty for spent and session key in proeprties
+            if (!isset($properties['spent']) || empty($properties['spent']) || !isset($properties['session']) || empty($properties['session'])) {
+                $event->setData(['error' => 'no data',]);
+                return;
+            }
+
             /** @var PageActivityTracking $currentActivity */
             $currentActivity = $this->pageActivityTrackingRepository->findOneBy(['sessionId' => $event->getRequest()->get('session')]);
 
@@ -63,18 +69,20 @@ class TrackingSubscriber implements EventSubscriberInterface
                     ->setPageUrl($this->stripGetArguments($pageUrl))
                     ->setSessionId($session)
                     ->setProperties($properties)
-                    ->setDateAdded($updated);
+                    ->setDateAdded($updated)
+                    ->setDateModified($updated)
+                    ->setDwellTime($properties['spent']);
+                ;
             } else {
                 $currentProperties                     = $currentActivity->getProperties();
                 $currentProperties['end']              = $properties['end'];
-                $currentProperties['spent']            = max($properties['spent'], $currentActivity->getDwellTime() * 1000);
+                $currentProperties['spent']            = $properties['spent'] + $currentActivity->getDwellTime();
                 $currentProperties['scrollPercentage'] = max($properties['scrollPercentage'], $currentProperties['scrollPercentage']);
                 $currentActivity->setProperties($currentProperties);
+                $currentActivity->setDwellTime($properties['spent'] + $currentActivity->getDwellTime());
             }
 
-            $currentActivity
-                ->setDateModified($updated)
-                ->setDwellTime($properties['spent'] / 1000);
+            $currentActivity->setDateModified($updated);
 
             try {
                 $this->pageActivityTrackingRepository->saveEntity($currentActivity);
