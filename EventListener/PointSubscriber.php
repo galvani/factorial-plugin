@@ -8,15 +8,21 @@ use Mautic\LeadBundle\Entity\CompanyLeadRepository;
 use Mautic\LeadBundle\Event\CompanyEvent;
 use Mautic\LeadBundle\Event\LeadChangeCompanyEvent;
 use Mautic\LeadBundle\Event\LeadEvent;
+use Mautic\LeadBundle\Event\LeadUtmTagsEvent;
 use Mautic\LeadBundle\LeadEvents;
 use Mautic\LeadBundle\Model\LeadModel;
+use Mautic\PageBundle\Event\PageHitEvent;
+use Mautic\PageBundle\PageEvents;
 use Mautic\PointBundle\Entity\Point;
 use Mautic\PointBundle\Entity\PointRepository;
 use Mautic\PointBundle\Event\PointBuilderEvent;
 use Mautic\PointBundle\Model\PointModel;
 use Mautic\PointBundle\PointEvents;
+use MauticPlugin\MauticFactorialBundle\Form\Type\PageUtmSourceHitType;
 use MauticPlugin\MauticFactorialBundle\Form\Type\PointPropertyChangeType;
 use MauticPlugin\MauticFactorialBundle\Helper\PointFieldChangeHelper;
+use MauticPlugin\MauticFactorialBundle\Helper\PointUtmSourceHelper;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Cache\CacheItem;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
@@ -28,6 +34,7 @@ class PointSubscriber implements EventSubscriberInterface
         private PointRepository       $pointRepository,
         private CacheProvider         $cacheProvider,
         private CompanyLeadRepository $companyLeadRepository,
+        private LoggerInterface       $logger,
     )
     {
     }
@@ -39,6 +46,8 @@ class PointSubscriber implements EventSubscriberInterface
             LeadEvents::LEAD_POST_SAVE      => ['onLeadPostSave', 0],
             LeadEvents::COMPANY_POST_SAVE   => ['onCompanyPostSave', 0],
             LeadEvents::LEAD_COMPANY_CHANGE => ['onLeadAddToCompany', 0],
+            LeadEvents::LEAD_UTMTAGS_ADD    => ['onLeadTagsAdd', 0],
+            PageEvents::PAGE_ON_HIT         => ['onPageHitTracked', 0],
         ];
     }
 
@@ -52,6 +61,16 @@ class PointSubscriber implements EventSubscriberInterface
         ];
 
         $event->addAction('lead.property_change', $action);
+
+        $action = [
+            'group'       => 'mautic.page.point.action',
+            'label'       => 'mautic.page.point.action.utm_source',
+            'description' => 'mautic.page.point.action.utm_source_description',
+            'callback'    => [PointUtmSourceHelper::class, 'match'],
+            'formType'    => PageUtmSourceHitType::class,
+        ];
+
+        $event->addAction('page.utm.hit', $action);
     }
 
     public function onLeadAddToCompany(LeadChangeCompanyEvent $event): void
@@ -116,6 +135,29 @@ class PointSubscriber implements EventSubscriberInterface
         }
     }
 
+    public function onPageHitTracked(PageHitEvent $event)
+    {
+        $url  = parse_url($event->getHit()->getUrl());
+        $lead = $event->getLead() ?? null;
+        $this->logger->info('Hit utm event', ['lead_id' => $event->getLead()->getId(), 'query' => $url['query'] ?? []]);
+        if (($url['query'] ?? []) === [] || $lead === null) {
+            return;
+        }
+
+        $utm = array_filter(explode('&', $url['query']), fn($parameter) => str_starts_with($parameter, 'utm_'));
+        if ($utm === []) {
+            return;
+        }
+
+        $this->logger->info('Hit utm event trigger', ['lead_id' => $event->getLead()->getId(), 'utm' => $utm]);
+        $this->pointModel->triggerAction('page.utm.hit', ['utm' => $utm], null, $lead, true);
+    }
+
+    public function onLeadTagsAdd(LeadUtmTagsEvent $event)
+    {
+        $this->logger->info('UTM event', ['lead_id' => $event->getLead()->getId(), 'utm' => $event->getLead()->getUtmTags()->toArray()]);
+    }
+
     /**
      * @return array<Point>
      * @throws \DateMalformedIntervalStringException
@@ -126,6 +168,7 @@ class PointSubscriber implements EventSubscriberInterface
             'points.contact.points',
             function (CacheItem $item) {
                 $item->expiresAfter(new \DateInterval('PT5M'));
+
                 return $this->pointRepository->getPublishedByType('lead.property_change');
             });
 

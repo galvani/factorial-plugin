@@ -16,14 +16,14 @@ class HubspotApi extends CrmApi
 
     protected function request($operation, $parameters = [], $method = 'GET', $object = 'contacts', $apiVersion = 'v2')
     {
-        if ($apiVersion==='v2') {
-            if ('oauth2' === $this->integration->getAuthenticationType()) {
-                $url     = sprintf('%s/%s/%s/', $this->integration->getApiUrl(), $object, $operation);
-            } else {
-                $url     = sprintf('%s/%s/%s/?hapikey=%s', $this->integration->getApiUrl(), $object, $operation, $this->integration->getHubSpotApiKey());
-            }
-        } else {
+        if ($apiVersion === 'v3') {
             $url = sprintf('%s/%s', $this->integration->getApiUrl(), $operation);
+        } else {
+            if ('oauth2' === $this->integration->getAuthenticationType()) {
+                $url = sprintf('%s/%s/%s/', $this->integration->getApiUrl(), $object, $operation);
+            } else {
+                $url = sprintf('%s/%s/%s/?hapikey=%s', $this->integration->getApiUrl(), $object, $operation, $this->integration->getHubSpotApiKey());
+            }
         }
 
         $request = $this->integration->makeRequest($url, $parameters, $method, $this->requestSettings);
@@ -105,7 +105,7 @@ class HubspotApi extends CrmApi
             return $this->request('crm/v3/objects/contacts', $params, 'GET', 'contacts', 'v3');   
         }
         
-        $data = [
+        $filter = [
             "filterGroups" => [
                 [
                     "filters" => [
@@ -141,7 +141,7 @@ class HubspotApi extends CrmApi
                 "after" => $params['after'] ?? 0,
         ];
 
-        $result = $this->request('crm/v3/objects/contacts/search', $data, 'POST','contacts','v3');
+        $result = $this->request('crm/v3/objects/contacts/search', $filter, 'POST','contacts','v3');
         $ids = array_column($result['results'], 'id');
 
         $resultData =  $this->getContactsById($ids, $params['fields']);

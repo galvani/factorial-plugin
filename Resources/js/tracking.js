@@ -126,7 +126,6 @@
       };
       this.log('Sending report', timeRange);
       MauticJS.makeCORSRequest('POST', '{$mauticBaseUrl}mtc/page', timeRange, function (data) {
-        console.info(data);
       }, function (error) {
         console.error('Error in sendReport:', error);
       });

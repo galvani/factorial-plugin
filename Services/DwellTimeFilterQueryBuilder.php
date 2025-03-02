@@ -4,11 +4,11 @@ namespace MauticPlugin\MauticFactorialBundle\Services;
 
 use Doctrine\DBAL\Query\Expression\CompositeExpression;
 use Mautic\LeadBundle\Segment\ContactSegmentFilter;
-use Mautic\LeadBundle\Segment\Query\Filter\BaseFilterQueryBuilder;
 use Mautic\LeadBundle\Segment\Query\LeadBatchLimiterTrait;
 use Mautic\LeadBundle\Segment\Query\QueryBuilder;
+use MauticPlugin\MauticFactorialBundle\Segment\BaseSegmentFilterQueryBuilder;
 
-class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
+class DwellTimeFilterQueryBuilder extends BaseSegmentFilterQueryBuilder
 {
     use LeadBatchLimiterTrait;
 
@@ -37,7 +37,7 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
         $filterParametersHolder = $filter->getParameterHolder($parameters);
 
-        if ( $filter->getGlue() === 'and') {
+        if ($filter->getGlue() === 'and') {
             $tableAlias = $this->getTableAliasFromQueryBuilderWhereAndHaving($queryBuilder, $filter->getTable());
         }
         $tableAlias ??= $this->generateRandomParameterName();
@@ -132,13 +132,12 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
                 $existingTableExpression = $this->ejectCurrentConditionFromQueryBuilderByTableName($queryBuilder, $tableAlias);
 
-                $subQueryBuilder         = $queryBuilder->createQueryBuilder();
+                $subQueryBuilder = $queryBuilder->createQueryBuilder();
                 $subQueryBuilder
                     ->select('lead_id')
-                    ->from($filter->getTable(), $tableAlias)
-                    ;
+                    ->from($filter->getTable(), $tableAlias);
 
-                if ($existingTableExpression!==null) {
+                if ($existingTableExpression !== null) {
                     if (count($existingTableExpression[0] ?? [])) {
                         $condition = reset($existingTableExpression[0]); // Moves the internal pointer to the first element and returns its value
                         match (strtoupper($filter->getGlue())) {
@@ -165,38 +164,6 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
         return $queryBuilder;
     }
 
-    protected function removeConditionFromComposite(CompositeExpression $compositeExpression, $condition): ?CompositeExpression
-    {
-        $parts = $this->getCompositeParts($compositeExpression);
-
-        foreach ($parts as $key => $part) {
-            if ($part === $condition) {
-                unset($parts[$key]);
-            }
-        }
-
-        // Create a new composite expression with the remaining parts
-        return count($parts) ? new CompositeExpression($compositeExpression->getType(), $parts) : null;
-    }
-
-    private function removeWhereConditionFromQueryBuilder(QueryBuilder $queryBuilder, string $queryWhere)
-    {
-        $wheres = $queryBuilder->getQueryPart('where');
-        if ($wheres === null) { // It's empty already
-            return;
-        }
-        $glue = $wheres->getType();
-
-        $wheres = $this->removeConditionFromComposite($wheres, $queryWhere);
-        $queryBuilder->resetQueryPart('where');
-
-        if ($glue === 'AND') {
-            $queryBuilder->andWhere($wheres);
-        } else {
-            $queryBuilder->orWhere($wheres);
-        }
-    }
-
     protected function ejectCurrentConditionFromQueryBuilderByTableName($queryBuilder, $table): ?array
     {
         $wherePart = $queryBuilder->getQueryPart('where');
@@ -216,7 +183,7 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
         foreach ($conditions as $condition) {
             $parsedCondition = $this->parseCondition($condition);
 
-            if ($parsedCondition === null || $table !== $parsedCondition['table']) {
+            if ($parsedCondition === null || $table !== $parsedCondition['alias']) {
                 $preservedConditions[] = $condition;
             } else {
                 $givenTableWhere[$parsedCondition['alias']] = $parsedCondition['condition'];
@@ -242,16 +209,16 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
         // Try to match the specific pattern first - now properly handling parentheses
         if (preg_match('/SELECT\s+(\w+)\.lead_id\s+FROM\s+(\w+)\s+(\w+)\s+WHERE\s+(.*?)(?=\)|\s+GROUP BY|\s+HAVING|$)/i', $condition, $matches)) {
             return [
-                'alias' => $matches[1],        // Extracted alias
-                'table' => $matches[2],        // Extracted table name
+                'alias'     => $matches[1],        // Extracted alias
+                'table'     => $matches[2],        // Extracted table name
                 'condition' => trim($matches[4]), // Extracted condition (now using group 4 since we removed WHERE capture)
-                'having' => null               // No HAVING clause in this pattern
+                'having'    => null               // No HAVING clause in this pattern
             ];
         }
 
         // If specific pattern doesn't match, try the generic SQL parser
         if (preg_match('/FROM\s+(\w+)(?:\s+(\w+))?/i', $condition, $tableMatch)) {
-            $tableName = $tableMatch[1];
+            $tableName  = $tableMatch[1];
             $tableAlias = $tableMatch[2] ?? null;
 
             // Extract WHERE clause - now not capturing WHERE keyword
@@ -267,10 +234,10 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
             }
 
             return [
-                'alias' => $tableAlias,
-                'table' => $tableName,
+                'alias'     => $tableAlias,
+                'table'     => $tableName,
                 'condition' => $whereClause,
-                'having' => $havingClause
+                'having'    => $havingClause
             ];
         }
 
@@ -290,7 +257,7 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
     protected function getTableAliasFromQueryBuilderWhereAndHaving(QueryBuilder $queryBuilder, string $table): ?string
     {
-        $wherePart = $queryBuilder->getQueryPart('where');
+        $wherePart  = $queryBuilder->getQueryPart('where');
         $havingPart = $queryBuilder->getQueryPart('having');
         if ($wherePart === null && $havingPart === null) {
             return null;
@@ -303,7 +270,7 @@ class DwellTimeFilterQueryBuilder extends BaseFilterQueryBuilder
 
         foreach ($conditions as $condition) {
             if (preg_match('/SELECT lead_id\s+FROM\s+(\w+)\s+(\w+)\s+WHERE\s+(.+)/i', $condition, $matches)) {
-                $alias = $matches[2]; // Extracted alias
+                $alias      = $matches[2]; // Extracted alias
                 $tableMatch = $matches[1]; // Extracted table name
                 if ($tableMatch === $table) {
                     return $alias;

@@ -6,8 +6,11 @@ use Mautic\LeadBundle\Event\LeadListFiltersChoicesEvent;
 use Mautic\LeadBundle\Event\SegmentDictionaryGenerationEvent;
 use Mautic\LeadBundle\LeadEvents;
 use Mautic\LeadBundle\Provider\TypeOperatorProviderInterface;
+use Mautic\LeadBundle\Segment\OperatorOptions;
 use MauticPlugin\MauticFactorialBundle\Services\DwellTimeFilterQueryBuilder;
 use MauticPlugin\MauticFactorialBundle\Services\DwellTimeOverallFilterQueryBuilder;
+use MauticPlugin\MauticFactorialBundle\Services\TotalPointsFilterQueryBuilder;
+use MauticPlugin\MauticFactorialBundle\Services\UnopenedEmailsFilterQueryBuilder;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -40,7 +43,14 @@ class SegmentFilterSubscriber implements EventSubscriberInterface
             [
                 'label'      => $this->translator->trans('mautic.factorial.segment.filter.dwell_time'),
                 'properties' => ['type' => 'number'],
-                'operators'  => $this->typeOperatorProvider->getOperatorsForFieldType('default'),
+                'operators'  => $this->typeOperatorProvider->getOperatorsIncluding(
+                    [
+                        OperatorOptions::EQUAL_TO,
+                        OperatorOptions::GREATER_THAN,
+                        OperatorOptions::LESS_THAN,
+                        OperatorOptions::GREATER_THAN_OR_EQUAL,
+                        OperatorOptions::LESS_THAN_OR_EQUAL,
+                    ]),
                 'object'     => 'page_activity_tracking',
             ]);
 
@@ -60,9 +70,47 @@ class SegmentFilterSubscriber implements EventSubscriberInterface
             [
                 'label'      => $this->translator->trans('mautic.factorial.segment.filter.dwell_time_overall'),
                 'properties' => ['type' => 'number'],
-                'operators'  => $this->typeOperatorProvider->getOperatorsForFieldType('number'),
+                'operators'  => $this->typeOperatorProvider->getOperatorsIncluding(
+                    [
+                        OperatorOptions::EQUAL_TO,
+                        OperatorOptions::GREATER_THAN,
+                        OperatorOptions::LESS_THAN,
+                        OperatorOptions::GREATER_THAN_OR_EQUAL,
+                        OperatorOptions::LESS_THAN_OR_EQUAL,
+                    ]),
                 'object'     => 'view_page_activity',
             ]);
+
+        $event->addChoice(
+            'lead',
+            'email_unopened_percentage',
+            [
+                'label'      => $this->translator->trans('mautic.factorial.segment.filter.unopened_emails_percentage'),
+                'properties' => ['type' => 'number'],
+                'operators'  => $this->typeOperatorProvider->getOperatorsForFieldType('number'),
+                'object'     => 'email_stats',
+            ]
+        );
+
+        $event->addChoice(
+            'lead',
+            'points_total',
+            [
+                'label'      => $this->translator->trans('mautic.factorial.segment.filter.points_total'),
+                'properties' => ['type' => 'number'],
+                'operators'  => $this->typeOperatorProvider->getOperatorsIncluding(
+                    [
+                        OperatorOptions::EQUAL_TO,
+                        OperatorOptions::GREATER_THAN,
+                        OperatorOptions::LESS_THAN,
+                        OperatorOptions::GREATER_THAN_OR_EQUAL,
+                        OperatorOptions::LESS_THAN_OR_EQUAL,
+                    ]),
+                'object'     => 'lead',
+            ]
+        );
+
+
     }
 
     public function onSegmentDictionaryGenerate(SegmentDictionaryGenerationEvent $event): void
@@ -100,6 +148,13 @@ class SegmentFilterSubscriber implements EventSubscriberInterface
             'null_value'          => 0,
         ]);
 
+        $event->addTranslation('email_unopened_percentage', [
+            'type' => UnopenedEmailsFilterQueryBuilder::getServiceId()
+        ]);
+
+        $event->addTranslation('points_total', [
+            'type' => TotalPointsFilterQueryBuilder::getServiceId(),
+        ]);
     }
 
 }

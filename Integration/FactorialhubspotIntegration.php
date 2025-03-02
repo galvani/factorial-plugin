@@ -188,6 +188,7 @@ class FactorialhubspotIntegration extends CrmAbstractIntegration
             if ($this->isAuthorized()) {
                 if (!empty($hubspotObjects) and is_array($hubspotObjects)) {
                     foreach ($hubspotObjects as $object) {
+                        $settings['ignore_field_cache'] = true;
                         // Check the cache first
                         $settings['cache_suffix'] = $cacheSuffix = '.'.$object;
                         if ($fields = parent::getAvailableLeadFields($settings)) {
@@ -376,16 +377,17 @@ class FactorialhubspotIntegration extends CrmAbstractIntegration
                 $fields                         = implode(',', array_keys($config['leadFields']));
                 $params['post_append_to_query'] = '&properties='.$fields.'&property=lifecyclestage';
                 $params['post_append_to_query'] .= '&propertiesWithHistory=email';
-                $params['limit']                = 10;
+                $params['limit']                = 50;
                 $params['fields']               = array_keys($config['leadFields']);
                 $params['fields'][]             = 'lifecyclestage';
 
                 $data = $this->getApiHelper()->getContacts($params);
                 if (isset($data['results'])) {
                     foreach ($data['results'] as $contact) {
-                        if (is_array($contact)) {
-                            $contactData = $this->amendLeadDataBeforeMauticPopulate($contact, 'Lead');                            
-                            $contact     = $this->getMauticLead($contactData);
+                        if (is_array($contact) && ($contact['properties']['email'] ?? '') !== '') {
+                            $contactData = $this->amendLeadDataBeforeMauticPopulate($contact, 'Lead');
+                            /** @var Lead $contact */
+                            $contact     = $this->getMauticLead($contactData, true, null,[]);
 
                             if ($contact && !$contact->isNewlyCreated()) { // updated
                                 $executed[0] = $executed[0] + 1;
@@ -508,7 +510,6 @@ class FactorialhubspotIntegration extends CrmAbstractIntegration
                 if (empty($stage)) {
                     $stage = new Stage();
                     $stage->setName($stageName);
-                    $stages[$stageName] = $stage;
                 }
                 if (!$lead->getStage() && $lead->getStage() != $stage) {
                     $lead->setStage($stage);

@@ -17,8 +17,7 @@ class TrackingSubscriber implements EventSubscriberInterface
 {
     public function __construct(
         private RouterInterface                $router,
-        private PageActivityTrackingRepository $pageActivityTrackingRepository
-
+        private PageActivityTrackingRepository $pageActivityTrackingRepository,
     )
     {
 
@@ -42,7 +41,7 @@ class TrackingSubscriber implements EventSubscriberInterface
         $content       = file_get_contents(__DIR__.'/../Resources/js/tracking.js');
         $mauticBaseUrl = $this->router->generate('mautic_base_index', [], UrlGeneratorInterface::ABSOLUTE_URL);
 
-        $event->appendJs(str_replace(['{$mauticBaseUrl}','{$debug}'], [$mauticBaseUrl, MAUTIC_ENV === 'dev' ? 'true' : false], $content));
+        $event->appendJs(str_replace(['{$mauticBaseUrl}','{$debug}'], [$mauticBaseUrl, MAUTIC_ENV === 'dev' ? 'true' : 'false'], $content));
     }
 
     public function onContactTracked(PageTrackingEvent $event)
